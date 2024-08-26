@@ -1,0 +1,72 @@
+Requisiti progetto sistema di controllo industriale p2p
+
+
+Grafo di peer non completamente connesso, logicamente si può considerare un ring con connessioni bilaterali tra ogni peer (semplicemente un cavo ethernet full duplex)
+L'ultima macchina è connessa alla prima
+
+I valori di input e output di ogni PLC (per es. sensori di temperatura, velocità motori eccetera) sono salvati in oggetti remoti
+I buffer di input e output di ogni macchina sono salvati in oggetti remoti, ogni buffer può essere simulato usando un vettore con 10 elementi (10% di riempimento, 20%...)
+
+L'invio di messaggi può essere simulato con delle chiamate di funzioni remote presenti su ogni controllore, le quali si occuperanno di implementare
+le funzionalità dell'applicazione e di passare dati tra i peer sfruttando sockets. 
+
+
+- Sistema inizializzato con input sul controllore della pima macchina, il quale notifica tutti gli altri -> Forwarding di un messaggio di init, il sistema
+  inizia a produrre quando il token ritorna al sender originale (tutte le macchine sono pronte)
+  	
+  	in questa fase è semplice controllare se ci sono dei fault sfruttando il token init: il sender utilizza un timer preimpostato
+  	in base alla lunghezza della linea, se un controllore non inoltra il token entro la scadenza il sender notifica l'utente che c'è stato un problema 
+	
+	All'inizio le macchine partono utilizzando valori default per i parametri
+	
+	
+- Taratura periodica automatica parametri di ogni controllore -> macchina i richiede valori alla macchina i-1  
+	
+	Esempio: se la temperatura letta da un sensore sulla macchina n° 3 supera una certa soglia, la macchina 4 deve aumentare la potenza del sistema di raffreddamento
+	i valori possono essere cambiati in maniera random ogni tanto per simulare cambiamenti nelle condizioni
+	
+	Per evitare flooding di messaggi, potrebbe essere utile implementare la taratura in modo che ogni controllore bilanci i suoi parametri 
+	ogni timestamp + una costante che dipende dalla posizione della macchina nella linea, molto semplicemente si può usare l'id del peer.
+	Questo per consentire alla linea di "svuotarsi" dai pezzi prodotti da ogni macchina con le condizioni di lavoro non ancora aggiornate.
+	
+	Un peer potrebbe tenere traccia delle richieste effettuate dalla macchina successiva nello stesso modo in cui l'inizializzatore tiene traccia del token init,
+	se la macchina successiva dopo un certo periodo di tempo non effettua richieste, si può considerare un fault
+	Il timer poi può essere azzerato dopo ogni richiesta andata a buon fine
+
+
+- Bilanciamento volumi di produzione -> Macchina i invia messaggio alla macchina i-1
+	
+	Esempio: Se la macchina numero 3 sta finendo lo spazio a disposizione nel buffer di output (e.g. uno stack di mattonelle che sta raggiungendo l'altezza limite),
+	questa deve notificare il controllore della macchina precedente in modo che rallenti la produzione, in più può notificare la macchina successiva per aumentare
+	se possibile la velocità di consumo dei materiali, il tutto per evitare che la linea si fermi
+	
+	Lo svuotamento di un buffer (dunque di un array) può essere simulato eliminando il valore di una cella ogni tot secondi con una sleep random leggermente 
+	diversa per ogni macchina in un range con poca varianza per evitare incongruenze troppo grandi tra input e output delle macchine [es. 0.5-1.5 secondi]
+	Stessa cosa per il riempimento
+	
+	
+
+- Spegnimento linea -> Macchina i invia messaggio alla macchina i+1
+	
+	Esempio: Quando è necessario disattivare la linea, il controllore della prima macchina invia un messaggio alla macchina successiva indicando che la produzione
+	deve essere fermata. La macchina successiva dunque aspetterà che il buffer in input si svuoti e invierà un messaggio alla macchina successiva notificandola
+	dello spegnimento, e così via fino all'ultima macchina, la quale notificherà la prima del corretto spegnimento di tutte le macchine in linea.
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+
