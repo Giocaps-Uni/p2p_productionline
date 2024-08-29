@@ -16,11 +16,13 @@ public class Peer {
 	
 	private Timer timer, timerc;
 	
+	private boolean stopped = false;
 	private int machineNum = 4;
-	private int workingCycles = 4;
+	private int workingCycles = 8;
 	
 	// Buffer of machines
 	private int buffer = 0;
+	private int sleepTime = 1000;
 	
 	// First machine is a press and determines the tile size (width)
 	private float tile_size = 10;
@@ -61,8 +63,8 @@ public class Peer {
         public void receive(Message msg) {
             
         	String mess = msg.getObject();
-        	
-            System.out.printf("-- [%s] msg from %s: %s\n", name, msg.src(), msg.getObject());
+        	if (stopped == false)
+        		System.out.printf("-- [%s] msg from %s: %s\n", name, msg.src(), msg.getObject());
             // Necessary to get positions of the members
             View v = ch.getView();
             // Gets the current member position in the memberlist using the address
@@ -102,13 +104,17 @@ public class Peer {
         	else if (mess.equals("Stop"))
         	{
         		try {
+        			stopped = true;
+        			// Empty buffer
+        			System.out.print("Emptying buffer\n");
         			for (int j = buffer; j>0; j--)
     	    			Util.sleep(1000);
+        			System.out.print("Done\n");
         			// If it's the last machine
         			if (pos == v.size() - 1 ) {
         				
         				notifyAllReady(v, "AllStop");
-	        			System.out.print("Stopping");
+	        			System.out.print("Stopping\n");
 	        		    //System.exit(0);
         			}
         			else
@@ -119,10 +125,10 @@ public class Peer {
 					e.printStackTrace();
 				}
         	}
-        	// Coordinator
+        	// Coordinator receives the stop message back
         	else if (mess.equals("AllStop"))
         	{
-        		System.out.print("Stopping");
+        		System.out.print("All machines stopped\n");
     		    //System.exit(0);
         	}
         	
@@ -135,22 +141,32 @@ public class Peer {
 					e.printStackTrace();
 				}
         	}
+        	
+        	else if (mess.equals("Balance+")) {
+        		sleepTime += 200;
+        	}
+        	else if (mess.equals("Balance-")) {
+        		if (sleepTime > 200)
+        			sleepTime -= 200;
+        	}
         	else if (mess.startsWith("val")) {
+        		if (stopped == false) {
         		timerc.cancel();
         		float val = Float.parseFloat(mess.substring(3));
         		// Second machine, Ink amount is double the width of the tile
         		if (pos == 1) {
         			ink_amount = val*2;
-        			System.out.print("Ink amount" + ink_amount);
+        			System.out.print("Updated Ink amount " + ink_amount +"\n");
         		}
         		// Third machine, oven's conveyor belt speed depends on the amount of ink to dry (more amount, less speed)
         		else if (pos == 2) {
         			roller_speed = 10/val;
-        			System.out.print("Roller Speed" + roller_speed);
+        			System.out.print("Updated Roller Speed " + roller_speed +"\n");
         		}
         		else {
         			cut_lenght = val * 5;
-        			System.out.print("Cut_lenght" + cut_lenght);
+        			System.out.print("Updated Cut_lenght " + cut_lenght +"\n");
+        		}
         		}
         	}
             
@@ -176,7 +192,7 @@ public class Peer {
         }
     }
     
-    // First machine forwards the token init and starts a timer to keep track of the elapsed time and notify the user for problems
+    // First machine forwards the token and starts a timer to keep track of the elapsed time and notify the user for problems
     private void init(View v, String m) throws Exception{
     	try {
     	// Done only by the coordinator 
@@ -202,7 +218,7 @@ public class Peer {
     		//e.printStackTrace();
     	}
     }
-    // Each entity will forward the init to the one next to it, sleep 1 second for debugging purposes
+    // Each entity will forward the message to the one next to it, sleep 1 second for debugging purposes
     private void forwardInit(View v, int position, String m) throws Exception {
     	try {
     		Util.sleep(1000);
@@ -212,7 +228,7 @@ public class Peer {
     		
     		if (m.equals("Stop")) {
     			
-    			System.out.print("Stopping");
+    			System.out.print("Stopping\n");
     		    //System.exit(0);
     		}
     	} catch (Exception e) {
@@ -220,7 +236,7 @@ public class Peer {
 			}
     }
     
-    // Send init token back to the coordinator
+    // Send token back to the coordinator
     private void notifyAllReady(View v, String m) {
     	try {
     		ch.send(v.getCoord(), m);
@@ -249,47 +265,75 @@ public class Peer {
     	// Production Buffer of the machine
     	
     	
-    	for (int i=0; i < workingCycles; i++) {
-    		
-    		Util.sleep(1000);
-    		
-	    	// First machine -> Press
-	    	// Parameter: width of the tiles
+    	for (int i = 0; i < workingCycles; i++) {
+    		System.out.print("Sleep time " + sleepTime + "\n");
+	    	// First machine does not have a buffer
 	    	if (pos == 0) {
-	    		buffer++;
-	    		// Every 2 cycles randomly update the tile width
+	    		if (stopped == false) {
+	    		Util.sleep(sleepTime);
+	    		// Every cycle update the tile width  ->  debugging purposes
 	    		tile_size++;
+	    		}
 	    	}
 	    	
+	    	// All other machines
 	    	else {
-	    		buffer++;
+	    		if (stopped == false) {
+	    		Random rand = new Random();
+	    		
+	    		if (buffer < 8)
+	    			buffer = buffer + rand.nextInt(5);
+	    		else
+	    			
 	    		
 	    		// Wait for amount of time proportional to the position of the machine in the line before asking for calibration
-	    		Util.sleep(1000+pos*1000);
+	    		Util.sleep(sleepTime+pos*1000);
 	    		ch.send(v.getMembers().get(pos-1), "Calib");
 	    		timerc = new Timer();
 				TimerTask task = new TimerTask() {
 				    @Override
 				    public void run() {
-				        System.out.println("A machine did not respond to calibration, please check");
+				        System.out.println("A machine did not respond to calibration, please check\n");
 				    }
 				};
+				
 				// Timeout after (2 times the number of nodes) seconds
 				long delay = TimeUnit.SECONDS.toMillis(2*v.size());
-				timerc.schedule(task, delay);
-	    		
-	    		
+				timerc.schedule(task, delay);	
+				System.out.print("buffer " + buffer + "\n");
+	    		}
 	    	}
+	    	
+	    	// For debugging purposes
+	    	Util.sleep(1000);
+	    	
+	    	// Empty buffer every working cycle
+	    	if (buffer > 0)
+	    		buffer--;
+	    	
+	    	// If buffer is more than 80% full, slow down previous machine
+	    	if (buffer >= 8)
+	    		balance(v, pos);
     	}
-    	// After working cycles are finished
     	
+    	// After working cycles are finished coordinator sends stop messages
 		if (pos == 0) {
 			// Empty buffer of first machine and send stop message
+			System.out.print("Emptying buffer\n");
     		for (int j = buffer; j>0; j--)
-    			Util.sleep(1000);
+    			Util.sleep(sleepTime);
+    		System.out.print("Done. Sending stop message\n");
 		    init(v, "Stop");
 		    
 		}
+    }
+    
+    private void balance(View v, int pos) throws Exception {
+    	// Tell previous machine to go slower
+    	ch.send(v.getMembers().get(pos-1), "Balance+");
+    	// Tell next machine to go faster
+    	if (pos != v.size() - 1)
+    		ch.send(v.getMembers().get(pos+1), "Balance-");
     }
     
     private void sendVal(View v, int pos) throws Exception {
