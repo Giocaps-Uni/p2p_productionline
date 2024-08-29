@@ -14,25 +14,25 @@ public class Peer {
 	protected JChannel ch;
 	private String clusterName = "prod_line";
 	
-	private Timer timer;
+	private Timer timer, timerc;
 	
 	private int machineNum = 4;
-	private int workingCycles = 2;
+	private int workingCycles = 4;
 	
 	// Buffer of machines
 	private int buffer = 0;
 	
 	// First machine is a press and determines the tile size (width)
-	private int tile_size = 10;
+	private float tile_size = 10;
 	
 	// Second machine is the Inkjet and determines how much ink to spray
-	private int ink_amount = 20;
+	private float ink_amount = 20;
 	
 	// Third machine is the oven and decides the conveyor belt speed that pass inside the oven
-	private int roller_speed = 15;
+	private float roller_speed = 15;
 	
 	// Fourth machine is the cutter and cuts the tiles according to the oven speed
-	private int cut_lenght = 10;
+	private float cut_lenght = 10;
 	
 	
 	@SuppressWarnings("resource")
@@ -63,8 +63,8 @@ public class Peer {
         	String mess = msg.getObject();
         	
             System.out.printf("-- [%s] msg from %s: %s\n", name, msg.src(), msg.getObject());
+            // Necessary to get positions of the members
             View v = ch.getView();
-            int src = v.getMembers().indexOf(msg.src());
             // Gets the current member position in the memberlist using the address
             int pos = v.getMembers().indexOf(ch.getAddress());
             
@@ -125,6 +125,8 @@ public class Peer {
         		System.out.print("Stopping");
     		    //System.exit(0);
         	}
+        	
+        	// Respond with value
         	else if (mess.equals("Calib")) {
         		try {
 					sendVal(v, pos);
@@ -132,6 +134,24 @@ public class Peer {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
+        	}
+        	else if (mess.startsWith("val")) {
+        		timerc.cancel();
+        		float val = Float.parseFloat(mess.substring(3));
+        		// Second machine, Ink amount is double the width of the tile
+        		if (pos == 1) {
+        			ink_amount = val*2;
+        			System.out.print("Ink amount" + ink_amount);
+        		}
+        		// Third machine, oven's conveyor belt speed depends on the amount of ink to dry (more amount, less speed)
+        		else if (pos == 2) {
+        			roller_speed = 10/val;
+        			System.out.print("Roller Speed" + roller_speed);
+        		}
+        		else {
+        			cut_lenght = val * 5;
+        			System.out.print("Cut_lenght" + cut_lenght);
+        		}
         	}
             
         }
@@ -170,7 +190,7 @@ public class Peer {
 			TimerTask task = new TimerTask() {
 			    @Override
 			    public void run() {
-			        System.out.println("A machine did not respond, please check");
+			        System.out.println("A machine did not respond to init, please check");
 			    }
 			};
 			// Timeout after (2 times the number of nodes) seconds
@@ -238,52 +258,33 @@ public class Peer {
 	    	if (pos == 0) {
 	    		buffer++;
 	    		// Every 2 cycles randomly update the tile width
-	    		if (i % 2 == 0) {
-	    			Random rand = new Random();
-	    			int val = rand.nextInt(1);
-	    			if (val == 0)
-	    				tile_size++;
-	    			else
-	    				if (tile_size > 1)
-	    					tile_size--;
-	    				else 
-	    					tile_size++;
-	    		}
-	    		
+	    		tile_size++;
 	    	}
 	    	
-	    	// Second machine -> ink injector
-	    	// Parameter: amount of ink to spray, proportional to tile width
-	    	else if (pos == 1) {
-	    		buffer = 2;
-	    		Util.sleep(1000+pos*1000);
-	    		ch.send(v.getMembers().get(pos-1), "Calib");
-	    		
-	    	}
-	    	
-	    	// Third machine -> Oven
-	    	// Parameters: temperature, depends on the amount of ink to dry
-	    	else if (pos == 2) {
-	    		buffer = 3;
-
-	    		Util.sleep(1000+pos*1000);
-	    		ch.send(v.getMembers().get(pos-1), "Calib");
-	    	}
-	    	
-	    	// Fourth machine -> Cutter
-	    	// Parameters: depend on the tile format, ask to first machine
 	    	else {
-	    		buffer = 2;
-
+	    		buffer++;
+	    		
+	    		// Wait for amount of time proportional to the position of the machine in the line before asking for calibration
 	    		Util.sleep(1000+pos*1000);
 	    		ch.send(v.getMembers().get(pos-1), "Calib");
+	    		timerc = new Timer();
+				TimerTask task = new TimerTask() {
+				    @Override
+				    public void run() {
+				        System.out.println("A machine did not respond to calibration, please check");
+				    }
+				};
+				// Timeout after (2 times the number of nodes) seconds
+				long delay = TimeUnit.SECONDS.toMillis(2*v.size());
+				timerc.schedule(task, delay);
+	    		
 	    		
 	    	}
     	}
     	// After working cycles are finished
     	
 		if (pos == 0) {
-			// Empty buffer
+			// Empty buffer of first machine and send stop message
     		for (int j = buffer; j>0; j--)
     			Util.sleep(1000);
 		    init(v, "Stop");
@@ -292,7 +293,7 @@ public class Peer {
     }
     
     private void sendVal(View v, int pos) throws Exception {
-    	int value;
+    	float value;
     	if (pos == 0)   		
     		value = tile_size;
     	else if (pos == 1)
