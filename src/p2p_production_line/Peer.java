@@ -27,7 +27,7 @@ public class Peer {
 	private int machineNum = 4;
 	
 	// Actually used for debugging and testing purposes, in reality it should be an endless loop
-	private int workingCycles = 8;
+	private int workingCycles = 20;
 	
 	// Buffer of the machine, used to check wether it's almost full (>8) or not.
 	private int buffer = 0;
@@ -312,8 +312,11 @@ public class Peer {
 	    		Random rand = new Random();
 	    		// Randomly update the buffer at each work cycle. Used to simulate the overflow, in reality it should be a value
 	    		// read by a sensor
-	    		if (buffer < 8)
+	    		if (buffer < 8) {
 	    			buffer = buffer + rand.nextInt(5);
+	    			if (buffer > 10)
+	    				buffer = 10;
+	    		}
 	    		
 	    		
 	    		// Wait for amount of time proportional to the position of the machine in the line before asking for calibration
@@ -352,7 +355,7 @@ public class Peer {
 			// Empty buffer of first machine and send stop message
 			System.out.print("Emptying buffer\n");
     		for (int j = buffer; j>0; j--)
-    			Util.sleep(sleepTime);
+    			Util.sleep(1000);
     		System.out.print("Done. Sending stop message\n");
 		    init(v, "Stop");
 		    
